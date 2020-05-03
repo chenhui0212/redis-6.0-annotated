@@ -45,6 +45,8 @@ uint64_t intrev64(uint64_t v);
 
 /* variants of the function doing the actual conversion only if the target
  * host is big endian */
+/* 小端：1234  大端：4321 */
+/* 如果系统为小端模式，则不作任何处理，如果是大端模式，则将指针p位置的数据转换为小端存储 */
 #if (BYTE_ORDER == LITTLE_ENDIAN)
 #define memrev16ifbe(p) ((void)(0))
 #define memrev32ifbe(p) ((void)(0))
@@ -53,9 +55,11 @@ uint64_t intrev64(uint64_t v);
 #define intrev32ifbe(v) (v)
 #define intrev64ifbe(v) (v)
 #else
+/* 将指针p处的数据进行大小端转换 */
 #define memrev16ifbe(p) memrev16(p)
 #define memrev32ifbe(p) memrev32(p)
 #define memrev64ifbe(p) memrev64(p)
+/* 将指针p处的数据进行大小端转换，并返回 */
 #define intrev16ifbe(v) intrev16(v)
 #define intrev32ifbe(v) intrev32(v)
 #define intrev64ifbe(v) intrev64(v)

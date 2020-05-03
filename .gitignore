@@ -33,3 +33,4 @@ deps/lua/src/liblua.a
 Makefile.dep
 .vscode/*
 .idea/*
+.history/*
