@@ -34,3 +34,4 @@ Makefile.dep
 .vscode/*
 .idea/*
 .history/*
+cmake-build-debug/
