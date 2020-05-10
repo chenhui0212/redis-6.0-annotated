@@ -33,7 +33,7 @@
 #ifndef __SDS_H
 #define __SDS_H
 
-#define SDS_MAX_PREALLOC (1024*1024)
+#define SDS_MAX_PREALLOC (1024*1024) /* 1M */
 extern const char *SDS_NOINIT;
 
 #include <sys/types.h>
@@ -44,6 +44,10 @@ typedef char *sds;
 
 /* Note: sdshdr5 is never used, we just access the flags byte directly.
  * However is here to document the layout of type 5 SDS strings. */
+/* 所有的结构体中:
+ * len      表示已使用长度
+ * alloc    表示可使用长度
+ * flags    低 3 位保存结构类型，高 5 位未被使用 */
 struct __attribute__ ((__packed__)) sdshdr5 {
     unsigned char flags; /* 3 lsb of type, and 5 msb of string length */
     char buf[];
@@ -84,6 +88,7 @@ struct __attribute__ ((__packed__)) sdshdr64 {
 #define SDS_HDR(T,s) ((struct sdshdr##T *)((s)-(sizeof(struct sdshdr##T))))
 #define SDS_TYPE_5_LEN(f) ((f)>>SDS_TYPE_BITS)
 
+/* 返回指定 sds 已用的长度 */
 static inline size_t sdslen(const sds s) {
     unsigned char flags = s[-1];
     switch(flags&SDS_TYPE_MASK) {
@@ -101,6 +106,7 @@ static inline size_t sdslen(const sds s) {
     return 0;
 }
 
+/* 返回指定 sds 可用的长度 */
 static inline size_t sdsavail(const sds s) {
     unsigned char flags = s[-1];
     switch(flags&SDS_TYPE_MASK) {
@@ -127,6 +133,7 @@ static inline size_t sdsavail(const sds s) {
     return 0;
 }
 
+/* 设置指定 sds 已用的长度 */
 static inline void sdssetlen(sds s, size_t newlen) {
     unsigned char flags = s[-1];
     switch(flags&SDS_TYPE_MASK) {
@@ -151,6 +158,7 @@ static inline void sdssetlen(sds s, size_t newlen) {
     }
 }
 
+/* 增加指定 sds 已用的长度 */
 static inline void sdsinclen(sds s, size_t inc) {
     unsigned char flags = s[-1];
     switch(flags&SDS_TYPE_MASK) {
@@ -177,6 +185,7 @@ static inline void sdsinclen(sds s, size_t inc) {
 }
 
 /* sdsalloc() = sdsavail() + sdslen() */
+/* 返回指定 sds 总长度 */
 static inline size_t sdsalloc(const sds s) {
     unsigned char flags = s[-1];
     switch(flags&SDS_TYPE_MASK) {
@@ -194,6 +203,7 @@ static inline size_t sdsalloc(const sds s) {
     return 0;
 }
 
+/* 设置指定 sds 总长度 */
 static inline void sdssetalloc(sds s, size_t newlen) {
     unsigned char flags = s[-1];
     switch(flags&SDS_TYPE_MASK) {
