@@ -1030,6 +1030,8 @@ int hex_digit_to_int(char c) {
  * quotes or closed quotes followed by non space characters
  * as in: "foo"bar or "foo'
  */
+/* 将一行文本分割成多个参数，参数的个数会保存在 argc 中，函数返回一个 sds 数组。
+ * 该函数主要用于对配置文件中的一行进行读取分析。 */
 sds *sdssplitargs(const char *line, int *argc) {
     const char *p = line;
     char *current = NULL;
@@ -1038,6 +1040,7 @@ sds *sdssplitargs(const char *line, int *argc) {
     *argc = 0;
     while(1) {
         /* skip blanks */
+        /* 跳过空白 */
         while(*p && isspace(*p)) p++;
         if (*p) {
             /* get a token */
@@ -1045,9 +1048,12 @@ sds *sdssplitargs(const char *line, int *argc) {
             int insq=0; /* set to 1 if we are in 'single quotes' */
             int done=0;
 
+            /* 开启新的连续字符的解析 */
             if (current == NULL) current = sdsempty();
-            while(!done) {
+            while(!done) { /* done=1 表示当前字符串解析结束，可以开始一下字符串的解析。 */
+                /* 在双引号内 */
                 if (inq) {
+                    /* 解析 '\x' 开头的十六进制数 */
                     if (*p == '\\' && *(p+1) == 'x' &&
                                              is_hex_digit(*(p+2)) &&
                                              is_hex_digit(*(p+3)))
@@ -1059,6 +1065,7 @@ sds *sdssplitargs(const char *line, int *argc) {
                         current = sdscatlen(current,(char*)&byte,1);
                         p += 3;
                     } else if (*p == '\\' && *(p+1)) {
+                        /* 解析其它的转义字符 */
                         char c;
 
                         p++;
@@ -1074,15 +1081,19 @@ sds *sdssplitargs(const char *line, int *argc) {
                     } else if (*p == '"') {
                         /* closing quote must be followed by a space or
                          * nothing at all. */
+                        /* 确保结尾的双引号后必须跟有一个空格或啥也没有 */
                         if (*(p+1) && !isspace(*(p+1))) goto err;
                         done=1;
                     } else if (!*p) {
                         /* unterminated quotes */
+                        /* 没有结束的双引号 */
                         goto err;
                     } else {
                         current = sdscatlen(current,p,1);
                     }
                 } else if (insq) {
+                    /* 在单引号内
+                     * 除了 '\'' 会被解析成单引号之外，其它任何字符均按源字符保存(无转义)。 */
                     if (*p == '\\' && *(p+1) == '\'') {
                         p++;
                         current = sdscatlen(current,"'",1);
@@ -1098,12 +1109,14 @@ sds *sdssplitargs(const char *line, int *argc) {
                         current = sdscatlen(current,p,1);
                     }
                 } else {
+                    /* 不在单引号以及双引号内 */
                     switch(*p) {
                     case ' ':
                     case '\n':
                     case '\r':
                     case '\t':
                     case '\0':
+                        /* 进行下个字符串的解析 */
                         done=1;
                         break;
                     case '"':
@@ -1120,12 +1133,14 @@ sds *sdssplitargs(const char *line, int *argc) {
                 if (*p) p++;
             }
             /* add the token to the vector */
+            /* 保存当前解析的字符串 */
             vector = s_realloc(vector,((*argc)+1)*sizeof(char*));
             vector[*argc] = current;
             (*argc)++;
             current = NULL;
         } else {
             /* Even on empty input string return something not NULL. */
+            /* 如果当前行没有任何数据，则返回一个空的数组。 */
             if (vector == NULL) vector = s_malloc(sizeof(void*));
             return vector;
         }
