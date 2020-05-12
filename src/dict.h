@@ -102,7 +102,7 @@ typedef struct dict {
     /* rehash 索引
      * 表示 ht[0] 已 rehash 到的位置，-1 表示非 rehash 状态。 */
     long rehashidx; /* rehashing not in progress if rehashidx == -1 */
-    /* 当前正在运行的迭代器数量 */
+    /* 当前正在运行的安全迭代器数量 */
     unsigned long iterators; /* number of iterators currently running */
 } dict;
 
