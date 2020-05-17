@@ -1168,19 +1168,22 @@ unsigned char *ziplistPrev(unsigned char *zl, unsigned char *p) {
  * on the encoding of the entry. '*sstr' is always set to NULL to be able
  * to find out whether the string pointer or the integer value was set.
  * Return 0 if 'p' points to the end of the ziplist, 1 otherwise. */
-/* 读取出p处的entry值 */
+/* 读取出 p 处的 entry 值，并根据 entry 的编码方式来决定将数据保存到 '*sstr' 还是 'sval' 中。
+ * 当编码方式是整型时，'*sstr' 会被设置为 NULL，这样调用方就可以通过该字段，知道具体的数据类型。 */
 unsigned int ziplistGet(unsigned char *p, unsigned char **sstr, unsigned int *slen, long long *sval) {
     zlentry entry;
     if (p == NULL || p[0] == ZIP_END) return 0;
-    if (sstr) *sstr = NULL;
+    if (sstr) *sstr = NULL; /* 指向空地址 */
 
     zipEntry(p, &entry);
     if (ZIP_IS_STR(entry.encoding)) {
+        /* 如果是字符串，则将字符串开始位置保存到 sstr 中。 */
         if (sstr) {
             *slen = entry.len;
             *sstr = p+entry.headersize;
         }
     } else {
+        /* 如果是整型，则将整型读取出来，保存到 sval 中。 */
         if (sval) {
             *sval = zipLoadInteger(p+entry.headersize,entry.encoding);
         }
