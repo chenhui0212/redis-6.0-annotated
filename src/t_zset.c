@@ -1405,11 +1405,14 @@ unsigned char *zzlDeleteRangeByRank(unsigned char *zl, unsigned int start, unsig
  * Common sorted set API
  *----------------------------------------------------------------------------*/
 
+/* 返回有序集合长度（节点数量） */
 unsigned long zsetLength(const robj *zobj) {
     unsigned long length = 0;
     if (zobj->encoding == OBJ_ENCODING_ZIPLIST) {
+        /* 压缩表 */
         length = zzlLength(zobj->ptr);
     } else if (zobj->encoding == OBJ_ENCODING_SKIPLIST) {
+        /* 跳表 */
         length = ((const zset*)zobj->ptr)->zsl->length;
     } else {
         serverPanic("Unknown sorted set encoding");
@@ -1417,6 +1420,7 @@ unsigned long zsetLength(const robj *zobj) {
     return length;
 }
 
+/* 转换有序集合为指定的编码方式 */
 void zsetConvert(robj *zobj, int encoding) {
     zset *zs;
     zskiplistNode *node, *next;
@@ -1424,6 +1428,7 @@ void zsetConvert(robj *zobj, int encoding) {
     double score;
 
     if (zobj->encoding == encoding) return;
+    /* 编码方式由压缩表转换为跳表 */
     if (zobj->encoding == OBJ_ENCODING_ZIPLIST) {
         unsigned char *zl = zobj->ptr;
         unsigned char *eptr, *sptr;
@@ -1434,16 +1439,22 @@ void zsetConvert(robj *zobj, int encoding) {
         if (encoding != OBJ_ENCODING_SKIPLIST)
             serverPanic("Unknown target encoding");
 
+        /* 创建有序集合结构 */
         zs = zmalloc(sizeof(*zs));
+        /* 字典 */
         zs->dict = dictCreate(&zsetDictType,NULL);
+        /* 跳表 */
         zs->zsl = zslCreate();
 
+        /* 获取压缩表首个成员值和分值地址 */
         eptr = ziplistIndex(zl,0);
         serverAssertWithInfo(NULL,zobj,eptr != NULL);
         sptr = ziplistNext(zl,eptr);
         serverAssertWithInfo(NULL,zobj,sptr != NULL);
 
+        /* 遍历压缩表中全部的节点，并依次添加到新的有序集合中。 */
         while (eptr != NULL) {
+            /* 获取分值和成员值 */
             score = zzlGetScore(sptr);
             serverAssertWithInfo(NULL,zobj,ziplistGet(eptr,&vstr,&vlen,&vlong));
             if (vstr == NULL)
@@ -1451,15 +1462,20 @@ void zsetConvert(robj *zobj, int encoding) {
             else
                 ele = sdsnewlen((char*)vstr,vlen);
 
+            /* 将成员值和分值分别保存到跳表和字典中 */
             node = zslInsert(zs->zsl,score,ele);
             serverAssert(dictAdd(zs->dict,ele,&node->score) == DICT_OK);
+            /* 移动指针，指向压缩表中下一个节点。 */
             zzlNext(zl,&eptr,&sptr);
         }
 
         zfree(zobj->ptr);
         zobj->ptr = zs;
         zobj->encoding = OBJ_ENCODING_SKIPLIST;
+
+    /* 编码方式由跳表转换为压缩表 */
     } else if (zobj->encoding == OBJ_ENCODING_SKIPLIST) {
+        /* 创建一个压缩表 */
         unsigned char *zl = ziplistNew();
 
         if (encoding != OBJ_ENCODING_ZIPLIST)
@@ -1468,13 +1484,18 @@ void zsetConvert(robj *zobj, int encoding) {
         /* Approach similar to zslFree(), since we want to free the skiplist at
          * the same time as creating the ziplist. */
         zs = zobj->ptr;
+        /* 提前释放字典，因为可以通过遍历跳表来完成数据转移。 */
         dictRelease(zs->dict);
+        /* 获取跳表中首个节点地址 */
         node = zs->zsl->header->level[0].forward;
         zfree(zs->zsl->header);
         zfree(zs->zsl);
 
+        /* 遍历跳表中全部节点，并将其添加到压缩表中。 */
         while (node) {
+            /* 将成员值和分值一次追加到压缩表结尾 */
             zl = zzlInsertAt(zl,NULL,node->ele,node->score);
+            /* 获取下一个节点地址 */
             next = node->level[0].forward;
             zslFreeNode(node);
             node = next;
@@ -1491,6 +1512,8 @@ void zsetConvert(robj *zobj, int encoding) {
 /* Convert the sorted set object into a ziplist if it is not already a ziplist
  * and if the number of elements and the maximum element size is within the
  * expected ranges. */
+/* 当有序集合的编码方式是跳表，且保存的节点数和最大的元素大小在指定范围内时，
+ * 将其编码方式转换为压缩表。 */
 void zsetConvertToZiplistIfNeeded(robj *zobj, size_t maxelelen) {
     if (zobj->encoding == OBJ_ENCODING_ZIPLIST) return;
     zset *zset = zobj->ptr;
@@ -1504,15 +1527,20 @@ void zsetConvertToZiplistIfNeeded(robj *zobj, size_t maxelelen) {
  * storing it into *score. If the element does not exist C_ERR is returned
  * otherwise C_OK is returned and *score is correctly populated.
  * If 'zobj' or 'member' is NULL, C_ERR is returned. */
+/* 从有序集合中查询指定成员值对应的分值，并保存到 score 中。
+ * 如果成员值存在，则返回 OK，否则返回 ERR。 */
 int zsetScore(robj *zobj, sds member, double *score) {
     if (!zobj || !member) return C_ERR;
 
     if (zobj->encoding == OBJ_ENCODING_ZIPLIST) {
+        /* 从压缩表中查询指定成员值对应的分值 */
         if (zzlFind(zobj->ptr, member, score) == NULL) return C_ERR;
     } else if (zobj->encoding == OBJ_ENCODING_SKIPLIST) {
         zset *zs = zobj->ptr;
+        /* 从字典中查询指定成员值对应的节点 */
         dictEntry *de = dictFind(zs->dict, member);
         if (de == NULL) return C_ERR;
+        /* 获取并保存分值 */
         *score = *(double*)dictGetVal(de);
     } else {
         serverPanic("Unknown sorted set encoding");
@@ -1522,21 +1550,28 @@ int zsetScore(robj *zobj, sds member, double *score) {
 
 /* Add a new element or update the score of an existing element in a sorted
  * set, regardless of its encoding.
+ * 添加或更新有序集合中指定成员值的分值。
  *
  * The set of flags change the command behavior. They are passed with an integer
  * pointer since the function will clear the flags and populate them with
  * other flags to indicate different conditions.
  *
  * The input flags are the following:
+ * 参数 flags 有如下含义：
  *
  * ZADD_INCR: Increment the current element score by 'score' instead of updating
  *            the current element score. If the element does not exist, we
  *            assume 0 as previous score.
+ *            如果成员值存在，则将对应的分值加一，
+ *            如果不存在，则假定之前的分值为 0。
  * ZADD_NX:   Perform the operation only if the element does not exist.
+ *            成员值不存在时执行。
  * ZADD_XX:   Perform the operation only if the element already exist.
+ *            成员存在时执行。
  *
  * When ZADD_INCR is used, the new score of the element is stored in
  * '*newscore' if 'newscore' is not NULL.
+ * 当命令是 ZADD_INCR 时，且 'newscore' 不为空时，将会把新的分值保存其中。
  *
  * The returned flags are the following:
  *
@@ -1546,6 +1581,9 @@ int zsetScore(robj *zobj, sds member, double *score) {
  * ZADD_NOP:     No operation was performed because of NX or XX.
  *
  * Return value:
+ * 返回值：
+ *
+ * 成功返回 1，失败返回 0。
  *
  * The function returns 1 on success, and sets the appropriate flags
  * ADDED or UPDATED to signal what happened during the operation (note that
@@ -1565,6 +1603,7 @@ int zsetScore(robj *zobj, sds member, double *score) {
  * it if needed. */
 int zsetAdd(robj *zobj, double score, sds ele, int *flags, double *newscore) {
     /* Turn options into simple to check vars. */
+    /* 将参数 flags 转换为单个检查变量 */
     int incr = (*flags & ZADD_INCR) != 0;
     int nx = (*flags & ZADD_NX) != 0;
     int xx = (*flags & ZADD_XX) != 0;
@@ -1572,23 +1611,28 @@ int zsetAdd(robj *zobj, double score, sds ele, int *flags, double *newscore) {
     double curscore;
 
     /* NaN as input is an error regardless of all the other parameters. */
+    /* 检查分值是否是数字 */
     if (isnan(score)) {
         *flags = ZADD_NAN;
         return 0;
     }
 
     /* Update the sorted set according to its encoding. */
+    /* 根据不同编码方式更新有序集合中存储的值 */
     if (zobj->encoding == OBJ_ENCODING_ZIPLIST) {
         unsigned char *eptr;
 
+        /* 指定成员值存在 */
         if ((eptr = zzlFind(zobj->ptr,ele,&curscore)) != NULL) {
             /* NX? Return, same element already exists. */
+            /* 如果 NX 为 true，直接返回。 */
             if (nx) {
                 *flags |= ZADD_NOP;
                 return 1;
             }
 
             /* Prepare the score for the increment if needed. */
+            /* 将分值加一 */
             if (incr) {
                 score += curscore;
                 if (isnan(score)) {
@@ -1599,6 +1643,7 @@ int zsetAdd(robj *zobj, double score, sds ele, int *flags, double *newscore) {
             }
 
             /* Remove and re-insert when score changed. */
+            /* 更新节点（删除原节点，再新增节点） */
             if (score != curscore) {
                 zobj->ptr = zzlDelete(zobj->ptr,eptr);
                 zobj->ptr = zzlInsert(zobj->ptr,ele,score);
@@ -1608,6 +1653,7 @@ int zsetAdd(robj *zobj, double score, sds ele, int *flags, double *newscore) {
         } else if (!xx) {
             /* Optimize: check if the element is too large or the list
              * becomes too long *before* executing zzlInsert. */
+            /* 如果指定节点不存在，且 XX 为 false，则新增节点。 */
             zobj->ptr = zzlInsert(zobj->ptr,ele,score);
             if (zzlLength(zobj->ptr) > server.zset_max_ziplist_entries ||
                 sdslen(ele) > server.zset_max_ziplist_value)
@@ -1624,16 +1670,21 @@ int zsetAdd(robj *zobj, double score, sds ele, int *flags, double *newscore) {
         zskiplistNode *znode;
         dictEntry *de;
 
+        /* 从字典中查询指定成员值对应的节点 */
         de = dictFind(zs->dict,ele);
+        /* 节点存在 */
         if (de != NULL) {
             /* NX? Return, same element already exists. */
+            /* 如果 NX 为 true，直接返回。 */
             if (nx) {
                 *flags |= ZADD_NOP;
                 return 1;
             }
+            /* 获取分值 */
             curscore = *(double*)dictGetVal(de);
 
             /* Prepare the score for the increment if needed. */
+            /* 将分值加一 */
             if (incr) {
                 score += curscore;
                 if (isnan(score)) {
@@ -1645,15 +1696,18 @@ int zsetAdd(robj *zobj, double score, sds ele, int *flags, double *newscore) {
 
             /* Remove and re-insert when score changes. */
             if (score != curscore) {
+                /* 更新跳表中指定成员值的分值 */
                 znode = zslUpdateScore(zs->zsl,curscore,ele,score);
                 /* Note that we did not removed the original element from
                  * the hash table representing the sorted set, so we just
                  * update the score. */
+                /* 更新字典中的分值 */
                 dictGetVal(de) = &znode->score; /* Update score ptr. */
                 *flags |= ZADD_UPDATED;
             }
             return 1;
         } else if (!xx) {
+            /* 如果指定节点不存在，且 XX 为 false，则新增节点。 */
             ele = sdsdup(ele);
             znode = zslInsert(zs->zsl,score,ele);
             serverAssert(dictAdd(zs->dict,ele,&znode->score) == DICT_OK);
@@ -1672,11 +1726,15 @@ int zsetAdd(robj *zobj, double score, sds ele, int *flags, double *newscore) {
 
 /* Delete the element 'ele' from the sorted set, returning 1 if the element
  * existed and was deleted, 0 otherwise (the element was not there). */
+/* 删除有序集合中指定成员值对应的节点。
+ * 如果节点存在，并被删除，返回 1，否则返回 0。 */
 int zsetDel(robj *zobj, sds ele) {
     if (zobj->encoding == OBJ_ENCODING_ZIPLIST) {
         unsigned char *eptr;
 
+        /* 获取压缩表中指定成员值所在的地址 */
         if ((eptr = zzlFind(zobj->ptr,ele,NULL)) != NULL) {
+            /* 删除压缩表指定位置的节点（成员值和分值） */
             zobj->ptr = zzlDelete(zobj->ptr,eptr);
             return 1;
         }
@@ -1685,9 +1743,11 @@ int zsetDel(robj *zobj, sds ele) {
         dictEntry *de;
         double score;
 
+        /* 删除字典中指定成员值的节点 */
         de = dictUnlink(zs->dict,ele);
         if (de != NULL) {
             /* Get the score in order to delete from the skiplist later. */
+            /* 获取分值，为了之后从跳表中删除节点。 */
             score = *(double*)dictGetVal(de);
 
             /* Delete from the hash table and later from the skiplist.
@@ -1695,9 +1755,16 @@ int zsetDel(robj *zobj, sds ele) {
              * actually releases the SDS string representing the element,
              * which is shared between the skiplist and the hash table, so
              * we need to delete from the skiplist as the final step. */
+            /* 删除的顺序必须是先从字典中删除，然后才能从跳表中删除。
+             * 因为从跳表中删除时，同时也会释放保存成员值的 sds 字符串，
+             * 该对象是跳表和字典共同使用的，所以如果提前释放，之后将无法从
+             * 字典中将对应节点删除。 */
+
+            /* 释放字典的节点 */
             dictFreeUnlinkedEntry(zs->dict,de);
 
             /* Delete from skiplist. */
+            /* 从跳表中删除 */
             int retval = zslDelete(zs->zsl,score,ele,NULL);
             serverAssert(retval);
 
@@ -1721,21 +1788,28 @@ int zsetDel(robj *zobj, sds ele) {
  * the one with the lowest score. Otherwise if 'reverse' is non-zero
  * the rank is computed considering as element with rank 0 the one with
  * the highest score. */
+/* 返回指定成员值在有序集合的排行（基于 0 开始），如果不存在，返回 -1。
+ *
+ * reverse 表示获取排行的方向，等于 false 时，表示返回正向的排行，
+ * 否则，表示返回逆向的排行。 */
 long zsetRank(robj *zobj, sds ele, int reverse) {
     unsigned long llen;
     unsigned long rank;
 
+    /* 集合长度 */
     llen = zsetLength(zobj);
 
     if (zobj->encoding == OBJ_ENCODING_ZIPLIST) {
         unsigned char *zl = zobj->ptr;
         unsigned char *eptr, *sptr;
 
+        /* 获取压缩表首个成员值和分值的地址 */
         eptr = ziplistIndex(zl,0);
         serverAssert(eptr != NULL);
         sptr = ziplistNext(zl,eptr);
         serverAssert(sptr != NULL);
 
+        /* 遍历整个压缩表节点，直到匹配到等于指定成员值的元素。 */
         rank = 1;
         while(eptr != NULL) {
             if (ziplistCompare(eptr,(unsigned char*)ele,sdslen(ele)))
@@ -1744,6 +1818,7 @@ long zsetRank(robj *zobj, sds ele, int reverse) {
             zzlNext(zl,&eptr,&sptr);
         }
 
+        /* 返回排行 */
         if (eptr != NULL) {
             if (reverse)
                 return llen-rank;
@@ -1758,12 +1833,16 @@ long zsetRank(robj *zobj, sds ele, int reverse) {
         dictEntry *de;
         double score;
 
+        /* 查询字典中指定成员值对应的节点 */
         de = dictFind(zs->dict,ele);
         if (de != NULL) {
+            /* 获取成员值对应的分值 */
             score = *(double*)dictGetVal(de);
+            /* 获取指定成员值和分值在跳表中的排行 */
             rank = zslGetRank(zsl,score,ele);
             /* Existing elements always have a rank. */
             serverAssert(rank != 0);
+            /* 返回排行 */
             if (reverse)
                 return llen-rank;
             else
