@@ -95,17 +95,31 @@
  */
 
 #define RAX_NODE_MAX_SIZE ((1<<29)-1)
+/* 基数节点
+ * 
+ * sizeof(raxNode) = 4，
+ * 第一个原因是位域，也就是结构体中的冒号：冒号在这里声明实际需要使用的位数，
+ * iskey、isnull、iscompr 和 size 四个一共加起来 32 位，占 4 个字节。
+ * 第二个原因是 data[] 占 0 个字节，这里并不能理解成一个 8 个字节的指针，
+ * 而是一个柔性数组的概念，实现一个可变长度。 */
 typedef struct raxNode {
+    /* 是否包含 key */
     uint32_t iskey:1;     /* Does this node contain a key? */
+    /* 是否存储 value 值 */
     uint32_t isnull:1;    /* Associated value is NULL (don't store it). */
+    /* 是否有前缀压缩 */
     uint32_t iscompr:1;   /* Node is compressed. */
+    /* 保存字符串长度（当节点非压缩时，同时等于子节点长度。） */
     uint32_t size:29;     /* Number of children, or compressed string len. */
     /* Data layout is as follows:
+     * 数据布局如下：
      *
      * If node is not compressed we have 'size' bytes, one for each children
      * character, and 'size' raxNode pointers, point to each child node.
      * Note how the character is not stored in the children but in the
      * edge of the parents:
+     * 如果节点是未压缩的，那么 'size' 的大小，即表示节点中字符个数，也表示节点中指向
+     * 子节点的指针个数。需要注意的是，字符并不是存储在子节点中，而是存储在父节点中。
      *
      * [header iscompr=0][abc][a-ptr][b-ptr][c-ptr](value-ptr?)
      *
@@ -115,24 +129,33 @@ typedef struct raxNode {
      * nodes linked one after the other, for which only the last one in
      * the sequence is actually represented as a node, and pointed to by
      * the current compressed node.
+     * 如果节点是被压缩的（iscompr 位为 1），则该节点只有 1 个子节点。
+     * 在这种情况下，'size' 的大小为保存在节点中字符的长度。
      *
      * [header iscompr=1][xyz][z-ptr](value-ptr?)
      *
      * Both compressed and not compressed nodes can represent a key
      * with associated data in the radix tree at any level (not just terminal
      * nodes).
+     * 节点不论是否压缩，都可以在基数树中以任何级别（不仅是终端节点）代表 key 和关联数据。
      *
      * If the node has an associated key (iskey=1) and is not NULL
      * (isnull=0), then after the raxNode pointers poiting to the
      * children, an additional value pointer is present (as you can see
      * in the representation above as "value-ptr" field).
+     * 如果节点具有关联的 key（iskey=1）且不为 NULL（isnull=0），
+     * 则在节点的最后会有一个附加的指向 value 的指针（上面看到的 'value-ptr' 字段）。
      */
     unsigned char data[];
 } raxNode;
 
+/* 基数树 */
 typedef struct rax {
+    /* 基节点 */
     raxNode *head;
+    /* 元素个数 */
     uint64_t numele;
+    /* 节点个数 */
     uint64_t numnodes;
 } rax;
 
